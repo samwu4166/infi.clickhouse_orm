@@ -10,15 +10,21 @@ Writing Migrations
 
 To write migrations, create a Python package. Then create a python file for the initial migration. The migration files must begin with a four-digit number, and will be applied in sequence. For example:
 
+Each pair of migration need to be a pair of (up, down), down.py is used to migrate back to previous state, so it need to be tested properly.
+
     analytics
        |
        +-- analytics_migrations
               |
               +-- __init__.py
               |
-              +-- 0001_initial.py
+              +-- 0001_initial_up.py
               |
-              +-- 0002_add_user_agents_table.py
+              +-- 0001_initial_down.py
+              |
+              +-- 0002_addUserAgentsTable_up.py
+              |
+              +-- 0002_addUserAgentsTable_down.py
 
 Each migration file is expected to contain a list of `operations`, for example:
 
@@ -100,9 +106,13 @@ Example:
 Running Migrations
 ------------------
 
-To migrate a database, create a `Database` instance and call its `migrate` method with the package name containing your migrations:
+To migrate a database, create a `Database` instance and call its `migrate` method with the package name containing your migrations and target version:
 
-    Database('analytics_db').migrate('analytics.analytics_migrations')
+    Database('analytics_db').migrate('analytics.analytics_migrations', version_to=10)
+
+To migrate down to certaion version, you can specify targe version in `version_to` like:
+
+    Database('analytics_db').migrate('analytics.analytics_migrations', version_to=8)
 
 Note that you may have more than one migrations package.
 
