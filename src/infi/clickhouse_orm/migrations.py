@@ -1,7 +1,7 @@
 from .models import Model, BufferModel
-from .fields import DateField, StringField
+from .fields import StringField, Int8Field, DateTimeField
 from .engines import MergeTree
-from .utils import escape, get_subclass_names
+from .utils import get_subclass_names
 
 import logging
 logger = logging.getLogger('migrations')
@@ -71,7 +71,14 @@ class AlterTable(ModelOperation):
         table_fields = dict(self._get_table_fields(database))
 
         # Identify fields that were deleted from the model
-        deleted_fields = set(table_fields.keys()) - set(self.model_class.fields())
+        # Need to keep order from back go front
+        current_fields = list(table_fields.keys())
+        current_fields.reverse()
+        deleted_fields = []
+        for current_field_reverse in current_fields:
+            if current_field_reverse not in self.model_class.fields():
+                deleted_fields.append(current_field_reverse)
+
         for name in deleted_fields:
             logger.info('        Drop column %s', name)
             self._alter_table(database, 'DROP COLUMN %s' % name)
@@ -149,6 +156,7 @@ class AlterConstraints(ModelOperation):
     def apply(self, database):
         logger.info('    Alter constraints for %s', self.table_name)
         existing = self._get_constraint_names(database)
+
         # Go over constraints in the model
         for constraint in self.model_class._constraints.values():
             # Check if it's a new constraint
@@ -157,6 +165,9 @@ class AlterConstraints(ModelOperation):
                 self._alter_table(database, 'ADD %s' % constraint.create_table_sql())
             else:
                 existing.remove(constraint.name)
+                logger.info('        Alter constraint %s', constraint.name)
+                self._alter_table(database, 'DROP CONSTRAINT `%s`' % constraint.name) 
+                self._alter_table(database, 'ADD %s' % constraint.create_table_sql())
         # Remaining constraints in `existing` are obsolete
         for name in existing:
             logger.info('        Drop constraint %s', name)
@@ -264,10 +275,11 @@ class MigrationHistory(Model):
     '''
 
     package_name = StringField()
+    migration_version = Int8Field()
     module_name = StringField()
-    applied = DateField()
+    applied = DateTimeField()
 
-    engine = MergeTree('applied', ('package_name', 'module_name'))
+    engine = MergeTree('applied', ('package_name', 'migration_version', 'module_name'))
 
     @classmethod
     def table_name(cls):

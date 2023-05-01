@@ -671,11 +671,14 @@ class LowCardinalityField(Field):
 
 class AggregationFunctionField(Field):
 
-    def __init__(self, inner_field, state_field, default=None, alias=None, materialized=None, readonly=True, codec=None):
+    """Insert state to clickhouse is not possible for now."""
+
+    def __init__(self, inner_field, state_field, default=None, alias=None, materialized=None, readonly=None, codec=None):
         assert isinstance(inner_field, Field), "The first argument of AggregationFunctionField must be a Field instance. Not: {}".format(inner_field)
         assert not isinstance(inner_field, AggregationFunctionField), "AggregationFunction inner fields are not supported by the ORM"
         self.inner_field = inner_field
         self.state_field = state_field
+        self.readonly = True
         self.class_default = self.inner_field.class_default
         super(AggregationFunctionField, self).__init__(default, alias, materialized, readonly, codec)
 
