@@ -351,7 +351,7 @@ class ModelWithConstraints2(Model):
     f2 = StringField()
 
     constraint = Constraint(f2.isIn(['a', 'b', 'c']))
-    f1_constraint_new = Constraint(f1 < 100)
+    f1_constraint = Constraint(f1 < 100)
 
     engine = MergeTree('date', ('date',))
 
