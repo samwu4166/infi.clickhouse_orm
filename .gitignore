@@ -63,3 +63,6 @@ cover/
 
 # tox
 .tox/
+
+.python-version
+.vscode

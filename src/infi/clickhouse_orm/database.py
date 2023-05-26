@@ -336,33 +336,91 @@ class Database(object):
             page_size=page_size
         )
 
-    def migrate(self, migrations_package_name, up_to=9999):
+    def migrate(self, migrations_package_name, version_to=None):
         '''
         Executes schema migrations.
 
         - `migrations_package_name` - fully qualified name of the Python package
           containing the migrations.
-        - `up_to` - number of the last migration to apply.
+        - `version_to` - apply or downgrade to some version 
         '''
-        from .migrations import MigrationHistory
         logger = logging.getLogger('migrations')
-        applied_migrations = self._get_applied_migrations(migrations_package_name)
+        if version_to is None or version_to < 0:
+            logger.error('Need to specify version number to apply')
+            raise ValueError(f'Invalid input version_to: {version_to}')
+
+        from .migrations import MigrationHistory
+        max_applied_migrations = self._get_max_applied_migration(migrations_package_name)
+        if int(version_to) == max_applied_migrations:
+            logger.info('Migration Done.')
+            return
+
         modules = import_submodules(migrations_package_name)
-        unapplied_migrations = set(modules.keys()) - applied_migrations
-        for name in sorted(unapplied_migrations):
+        modules_dicts = self._migration_modules_to_list(modules.keys())
+
+        migration_up = True
+        if int(version_to) < max_applied_migrations:
+            migration_up = False
+            unapplied_migrations = [(f"{item['module_prefix_name']}_down", item['version'])
+                                    for item in sorted(modules_dicts, key=lambda data: data['version'], reverse=True)
+                                    if (item['version'] > version_to) and (item['version'] <= max_applied_migrations)]
+        else:
+            unapplied_migrations = [(f"{item['module_prefix_name']}_up", item['version'])
+                                    for item in sorted(modules_dicts, key=lambda data: data['version'], reverse=False)
+                                    if (item['version'] <= version_to) and (item['version'] > max_applied_migrations)]
+
+        logger.info('unapplied migrations: %s' % unapplied_migrations)
+
+        for name, version in unapplied_migrations:
             logger.info('Applying migration %s...', name)
+
             for operation in modules[name].operations:
                 operation.apply(self)
-            self.insert([MigrationHistory(package_name=migrations_package_name, module_name=name, applied=datetime.date.today())])
-            if int(name[:4]) >= up_to:
-                break
 
-    def _get_applied_migrations(self, migrations_package_name):
+            if migration_up:
+                self.insert([MigrationHistory(
+                    package_name=migrations_package_name,
+                    migration_version=version,
+                    module_name=name,
+                    applied=datetime.datetime.today())])
+            else:
+                self._delete_migrations(version)
+
+    def _migration_modules_to_list(self, modules):
+        """Parse migration modules into file dictionary
+
+        Args:
+            modules (List[str]): list of modules
+        
+        Return:
+            List[Dict[str, Union[int, str]]]
+            -> Ex. [{'version': 1, 'module_name': 'migrationName1', 'module_prefix_name': '0001_moduleName1'}}]
+        """
+        def string_to_dicts(file_list):
+            import re
+            result = []
+
+            for file in file_list:
+                match = re.match(r'(\d{4})_(\w+)\_up', file)
+                if match:
+                    version, module_name = match.groups()
+                    result.append({'version': int(version), 'module_name': module_name, 'module_prefix_name': f'{version}_{module_name}'})
+            return result
+        return string_to_dicts(modules)
+
+    def _get_max_applied_migration(self, migrations_package_name):
         from .migrations import MigrationHistory
         self.create_table(MigrationHistory)
-        query = "SELECT module_name from $table WHERE package_name = '%s'" % migrations_package_name
+        query = "SELECT MAX(migration_version) as max_version from $table WHERE package_name = '%s'" % migrations_package_name
         query = self._substitute(query, MigrationHistory)
-        return set(obj.module_name for obj in self.select(query))
+        return [obj.max_version for obj in self.select(query)][0]
+
+    def _delete_migrations(self, migrations_version):
+        from .migrations import MigrationHistory
+        self.create_table(MigrationHistory)
+        query = "DELETE from $table WHERE migration_version = %s" % migrations_version
+        query = self._substitute(query, MigrationHistory)
+        self._send(query)
 
     def _send(self, data, settings=None, stream=False):
         if isinstance(data, str):

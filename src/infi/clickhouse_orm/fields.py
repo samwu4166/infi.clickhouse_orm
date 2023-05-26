@@ -669,6 +669,34 @@ class LowCardinalityField(Field):
             sql += self._extra_params(db)
         return sql
 
+class AggregationFunctionField(Field):
+
+    """Insert state to clickhouse is not possible for now."""
+
+    def __init__(self, inner_field, state_field, default=None, alias=None, materialized=None, readonly=None, codec=None):
+        assert isinstance(inner_field, Field), "The first argument of AggregationFunctionField must be a Field instance. Not: {}".format(inner_field)
+        assert not isinstance(inner_field, AggregationFunctionField), "AggregationFunction inner fields are not supported by the ORM"
+        self.inner_field = inner_field
+        self.state_field = state_field
+        self.readonly = True
+        self.class_default = self.inner_field.class_default
+        super(AggregationFunctionField, self).__init__(default, alias, materialized, readonly, codec)
+
+    def to_python(self, value, timezone_in_use):
+        return self.inner_field.to_python(value, timezone_in_use)
+
+    def validate(self, value):
+        self.inner_field.validate(value)
+
+    def to_db_string(self, value, quote=True):
+        return self.inner_field.to_db_string(value, quote=quote)
+
+    def get_sql(self, with_default_expression=True, db=None):
+        if db:
+            sql = 'AggregateFunction(%s, %s)' % (self.state_field, self.inner_field.get_sql(with_default_expression=False))
+        if with_default_expression:
+            sql += self._extra_params(db)
+        return sql
 
 # Expose only relevant classes in import *
 __all__ = get_subclass_names(locals(), Field)

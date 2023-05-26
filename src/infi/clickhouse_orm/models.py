@@ -245,6 +245,14 @@ class ModelBase(type):
         if db_type.startswith('LowCardinality'):
             inner_field = cls.create_ad_hoc_field(db_type[15 : -1])
             return orm_fields.LowCardinalityField(inner_field)
+        # AggregateFunction
+        if db_type.startswith('AggregateFunction'):
+            p = db_type.index('(')
+            args = (n.strip() for n in db_type[p + 1 : -1].split(','))
+            state_field, inner_field = args
+            inner_field = cls.create_ad_hoc_field(inner_field)
+            return orm_fields.AggregationFunctionField(inner_field, state_field)
+
         # Simple fields
         name = db_type + 'Field'
         if not hasattr(orm_fields, name):
